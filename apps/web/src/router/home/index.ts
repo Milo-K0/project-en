@@ -1,5 +1,5 @@
 import layout from "@/layout/index.vue";
-import home from "@/views/WordBook/Home/index.vue";
+import home from "@/views/Home/index.vue";
 
 export default [
   {

@@ -296,3 +296,522 @@ pnpm install
 ```
 
 配置后进行页面开发
+
+### 词库接口开发
+
+- 增加前缀 /api 及前缀版本号v1
+
+```ts
+app.setGlobalPrefix("api");
+app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
+```
+
+- 设计接口规范
+  前后端公用数据类型放在 packages/common 中
+
+```ts
+export type Word = {
+  id: string; // 单词ID
+  word: string; // 单词
+  phonetic?: string; // 音标
+  definition?: string; // 定义
+  translation?: string; // 翻译
+  pos?: string; // 词性
+  collins?: string; // 柯林斯
+  oxford?: string; // 牛津
+  tag?: string; // 标签
+  bnc?: string; // BNC 英国国家语料库
+  frq?: string; // FRQ 频率
+  exchange?: string; // 同义词
+  gk?: boolean; // 高考
+  zk?: boolean; // 中考
+  gre?: boolean; // GRE
+  toefl?: boolean; // TOEFL
+  ielts?: boolean; // IELTS
+  cet6?: boolean; // 大学英语六级
+  cet4?: boolean; // 大学英语四级
+  ky?: boolean; // 考研
+  createdAt: string; // 创建时间, ISO 日期字符串
+  updatedAt: string; // 更新时间, ISO 日期字符串
+};
+
+export type WordList = {
+  list: Word[];
+  total: number;
+};
+
+export interface WordQuery {
+  page: number;
+  pageSize: number;
+  word?: string;
+  gk?: boolean;
+  zk?: boolean;
+  gre?: boolean;
+  toefl?: boolean;
+  ielts?: boolean;
+  cet6?: boolean;
+  cet4?: boolean;
+  ky?: boolean;
+}
+```
+
+- 实现接口
+
+1. 创建word-book 模块
+
+```sh
+nest g res word-book --project server
+```
+
+2. 在controller中定义接口
+
+```ts
+import { Controller, Get, Query } from "@nestjs/common";
+import { WordBookService } from "./word-book.service";
+import type { WordQuery } from "@en/common/word";
+
+@Controller("word-book")
+export class WordBookController {
+  constructor(private readonly wordBookService: WordBookService) {}
+
+  @Get()
+  findAll(@Query() query: WordQuery) {
+    return this.wordBookService.findAll(query);
+  }
+}
+```
+
+3. 在service中实现接口逻辑
+
+```ts
+import { Injectable } from "@nestjs/common";
+import { ResponseService } from "@libs/shared";
+import type { WordQuery } from "@en/common/word";
+import type { Prisma } from "@libs/shared/generated/prisma/client";
+import { PrismaService } from "@libs/shared/prisma/prisma.service";
+
+@Injectable()
+export class WordBookService {
+  constructor(
+    private readonly responseService: ResponseService,
+    private readonly prismaService: PrismaService,
+  ) {}
+
+  private toBoolean(value: any) {
+    return value === "true" ? true : undefined;
+  }
+  async findAll(query: WordQuery) {
+    const { page = 1, pageSize = 12, word, ...rest } = query;
+    const tags = Object.fromEntries(
+      Object.entries(rest).map(([key, value]) => [key, this.toBoolean(value)]),
+    );
+    const where: Prisma.WordBookWhereInput = {
+      word: word ? { contains: word } : undefined,
+      ...tags,
+    };
+
+    const [total, list] = await Promise.all([
+      this.prismaService.wordBook.count({ where }),
+      this.prismaService.wordBook.findMany({
+        where,
+        skip: Number(page - 1) * Number(pageSize),
+        take: Number(pageSize),
+        orderBy: {
+          frq: "desc",
+        },
+      }),
+    ]);
+
+    return this.responseService.success({
+      total,
+      list,
+    });
+  }
+}
+```
+
+### 词库接口对接
+
+- 前端跨域处理
+
+```json
+"proxy": {
+    "/api": {
+      "target": "http://localhost:3000",
+      "changeOrigin": true,
+      // "rewrite": (path) => path.replace(/^\/api/, ""), //无需rewrite 后端决定
+    }
+  },
+```
+
+- 前端接口配置
+
+```ts
+import axios from "axios";
+export const timeout = 50000;
+
+export const serverApi = axios.create({
+  baseURL: "/api/v1",
+  timeout,
+});
+
+serverApi.interceptors.response.use((res) => {
+  return res.data;
+});
+
+export const aiApi = axios.create({
+  baseURL: "/api/ai",
+  timeout,
+});
+
+aiApi.interceptors.response.use((res) => {
+  return res.data;
+});
+
+export interface Response<T = any> {
+  timestamp: string;
+  path: string;
+  message: string;
+  code: number;
+  success: boolean;
+  data: T;
+}
+```
+
+- 前端接口对接
+
+```ts
+import { serverApi } from "..";
+import type { Response } from "../index";
+import type { WordQuery, Word } from "@en/common/word";
+
+export const getWordBookList = (
+  params: WordQuery,
+): Promise<Response<{ total: number; list: Word[] }>> => {
+  return serverApi.get("/word-book", {
+    params,
+  });
+};
+```
+
+- 后续调用接口时，直接调用定义的函数即可
+
+### 全局搜索组件开发
+
+# 🔍 全局搜索组件
+
+> 实现一个全局搜索功能，用户在任意页面按下 `Ctrl + F` 即可快速查询单词
+
+---
+
+## 📋 功能概述
+
+| 项目       | 说明                                  |
+| ---------- | ------------------------------------- |
+| 组件路径   | `src/components/Search/index.vue`     |
+| 触发快捷键 | `Ctrl + F` 打开 / `Esc` 关闭          |
+| 复用接口   | `{ page: 1, pageSize: 20, word: '' }` |
+
+---
+
+### 🚀 实现步骤
+
+#### Step 1：搜索组件基础结构
+
+由于是全局组件，放置在 `src/components/Search/index.vue`
+
+```vue
+<template>
+  <div>
+    <input type="text" v-model="search" />
+    <button @click="search">搜索</button>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from "vue";
+</script>
+```
+
+---
+
+#### Step 2：样式优化
+
+添加遮罩层背景、搜索图标，优化整体视觉效果：
+
+```vue
+<template>
+  <div
+    class="fixed inset-0 w-full h-full z-40 bg-black opacity-30 blur-sm"
+  ></div>
+  <div class="fixed inset-0 shadow-lg z-50 p-30 pt-20">
+    <div class="flex items-center gap-2 shadow-lg w-1/2 mx-auto p-3 bg-white">
+      <el-icon size="20">
+        <Search />
+      </el-icon>
+      <input
+        @input="searchWord"
+        class="w-full h-full text-sm border-none  rounded-lg p-2 focus:outline-none"
+        type="text"
+        v-model="search"
+      />
+    </div>
+    <div></div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from "vue";
+import { Search } from "@element-plus/icons-vue";
+import type { Word } from "@en/common/word";
+const search = ref("");
+const wordList = ref<Word[]>([]);
+const searchWord = () => {
+  console.log(search.value);
+};
+</script>
+```
+
+---
+
+#### Step 3：防抖处理
+
+#### ❓ 为什么需要防抖？
+
+上述代码中，每次输入都会触发 `searchWord` 函数，导致频繁请求接口，造成性能问题。
+
+##### 方案一：传统防抖
+
+> ⚠️ **缺点**：需要额外绑定事件和管理 timer 变量
+
+```ts
+let timer: ReturnType<typeof setTimeout> | null = null;
+const searchWord = () => {
+  if (timer) {
+    clearTimeout(timer);
+  }
+  timer = setTimeout(() => {
+    console.log(search.value);
+  }, 500);
+};
+```
+
+##### 方案二：使用 `customRef`（✅ 推荐）
+
+**什么是 customRef？**
+
+`customRef` 是 Vue 3 新增的 API，用于创建自定义的 ref，可以自定义 getter 和 setter 的行为。
+
+📖 官方文档：https://cn.vuejs.org/api/reactivity-advanced.html#customref
+
+```ts
+const search = customRef((track, trigger) => {
+  let value = ""; //默认值
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    get() {
+      track(); //告诉vue追踪value的值
+      return value;
+    },
+    set(newValue: string) {
+      value = newValue;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => {
+        trigger(); //告诉vue触发value的值，从而触发依赖
+        getList();
+      }, 500);
+    },
+  };
+}); //自定义ref
+```
+
+---
+
+#### Step 4：完整实现（含快捷键 + 过渡动画）
+
+整合 `Ctrl + F` 快捷键、`Esc` 关闭、Vue Transition 动画效果：
+
+```ts
+<template>
+    <div v-if="isShow" class="fixed top-0 left-0  w-full h-full z-40 bg-black opacity-30  blur-sm"></div>
+    <Transition name="fade">
+        <div v-if="isShow" class="fixed inset-0  shadow-lg z-50 p-30 pt-20">
+            <div :class="wordList.length > 0 ? 'rounded-tr-[10px] rounded-tl-[10px]' : 'rounded-[10px]'" class="flex items-center gap-2 shadow-lg w-1/2 mx-auto p-3  bg-white ">
+                <el-icon size="20">
+                    <Search />
+                </el-icon>
+                <input v-focus class="w-full h-full text-sm border-none  rounded-lg p-2 focus:outline-none" type="text"
+                    v-model="search" placeholder="搜索">
+            </div>
+            <div class="w-1/2 mx-auto max-h-[500px] border-t border-gray-200 overflow-y-auto"
+                v-if="wordList.length > 0">
+                <div class="bg-white hover:bg-blue-50   text-gray-800 p-4 cursor-pointer shadow-sm hover:shadow-md "
+                    v-for="item in wordList" :key="item.id">
+                    <div class="text-sm font-semibold text-blue-600 mb-1">{{ item.word }}</div>
+                    <div v-html="item.translation" class="text-sm text-gray-700 mb-1 overflow-hidden line-clamp-2" />
+                </div>
+            </div>
+        </div>
+    </Transition>
+</template>
+<script setup lang="ts">
+import { customRef, ref } from 'vue'
+import { getWordListApi } from '@/api/word'
+import type { WordList } from '@en/common/word'
+import { Search } from '@element-plus/icons-vue'
+const isShow = ref(false)
+const wordList = ref<WordList>([])
+let timer: ReturnType<typeof setTimeout> | null = null
+const getList = async () => {
+    const res = await getWordListApi({ word: search.value, page: 1, pageSize: 20 })
+    if (res.success) {
+        wordList.value = res.data.list
+    }
+}
+const search = customRef((track, trigger) => {
+    let searchValue = ''
+    return {
+        get() {
+            track()
+            return searchValue
+        },
+        set(newValue) {
+            timer && clearTimeout(timer)
+            timer = setTimeout(() => {
+                searchValue = newValue
+                getList()
+                trigger()
+            }, 500)
+        },
+    }
+})
+window.addEventListener('keydown', (event) => {
+    if (event.ctrlKey && event.key === 'f') {
+        event.preventDefault() //阻止默认事件
+        isShow.value = true
+    }
+    if (event.key === 'Escape') {
+        isShow.value = false
+        search.value = ''
+    }
+})
+</script>
+
+<style>
+.fade-enter-active,
+.fade-leave-active {
+    transition: all 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+    transform: scale(0.8);
+}
+
+.fade-enter-to,
+.fade-leave-from {
+    opacity: 1;
+    transform: scale(1);
+}
+</style>
+```
+
+---
+
+#### 🎨 过渡动画解析
+
+Vue 的 `<Transition>` 组件会在过渡过程中自动添加以下 CSS 类名：
+
+| 类名               | 触发时机           |
+| ------------------ | ------------------ |
+| `.fade-enter-from` | 进入动画**开始**时 |
+| `.fade-enter-to`   | 进入动画**结束**时 |
+| `.fade-leave-from` | 离开动画**开始**时 |
+| `.fade-leave-to`   | 离开动画**结束**时 |
+
+```css
+.fade-enter-active,
+.fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+.fade-enter-to,
+.fade-leave-from {
+  opacity: 1;
+  transform: scale(1);
+}
+```
+
+---
+
+#### ⚡ 自定义指令：自动聚焦
+
+#### 问题
+
+用户每次打开搜索框，还需要手动点击输入框才能输入，体验不佳。
+
+#### 解决方案
+
+创建 `v-focus` 自定义指令，自动聚焦输入框。
+
+**📁 directives/focus.ts**
+
+```ts
+import type { App, Plugin } from "vue";
+export default {
+  install(app: App) {
+    app.directive("focus", {
+      mounted(el: HTMLElement) {
+        el.focus();
+      },
+    });
+  },
+} as Plugin;
+```
+
+**📁 main.ts**
+
+```ts
+import focusPlugin from "./directives/focus";
+app.use(focusPlugin); // 使用 focus 指令
+```
+
+---
+
+#### 📋 复制功能
+
+点击搜索结果即可复制单词到剪贴板：
+
+> ⚠️ **注意**：`navigator.clipboard` 仅在 `localhost` 或 `https` 环境下可用
+
+```ts
+const copyWord = (word: Word) => {
+  try {
+    navigator.clipboard.writeText(word.word); //localhost  / https
+    ElMessage.success("复制成功");
+  } catch (error) {
+    ElMessage.error("复制失败");
+  }
+};
+```
+
+---
+
+#### ✅ 总结
+
+| 功能点   | 实现方式                             |
+| -------- | ------------------------------------ |
+| 防抖     | `customRef`                          |
+| 快捷键   | `window.addEventListener('keydown')` |
+| 过渡动画 | Vue `<Transition>`                   |
+| 自动聚焦 | 自定义指令 `v-focus`                 |
+| 复制     | `navigator.clipboard.writeText()`    |

@@ -7,6 +7,12 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   server: {
     port: Config.server.web,
+    proxy: {
+      "/api": {
+        target: `http://localhost:${Config.server.port}`,
+        changeOrigin: true,
+      },
+    },
   },
   plugins: [vue(), tailwindcss()],
   resolve: {
