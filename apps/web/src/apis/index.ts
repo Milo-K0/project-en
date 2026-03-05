@@ -1,14 +1,77 @@
 import axios from "axios";
 export const timeout = 50000;
+import { useUserStore } from "@/stores/user";
+import router from "@/router";
+import { refreshTokenApi } from "./auth";
 
 export const serverApi = axios.create({
   baseURL: "/api/v1",
   timeout,
 });
 
-serverApi.interceptors.response.use((res) => {
-  return res.data;
+let isRefreshing = false;
+let requestQueue: ((newAccessToken: string) => void)[] = []; // 存储失败的请求
+
+// 请求拦截器
+serverApi.interceptors.request.use((config) => {
+  const userStore = useUserStore();
+  if (userStore.getAccessToken) {
+    config.headers.Authorization = `Bearer ${userStore.getAccessToken}`;
+  }
+  return config;
 });
+
+serverApi.interceptors.response.use(
+  (res) => {
+    return res.data;
+  },
+  async (err) => {
+    if (err.response.status !== 401) {
+      return Promise.reject(err);
+    }
+    const origin = err.config;
+    const userStore = useUserStore();
+    const refreshToken = userStore.getRefreshToken;
+    if (!refreshToken) {
+      userStore.logout();
+      router.push("/");
+      return Promise.reject(err);
+    }
+
+    if (isRefreshing) {
+      return new Promise((resolve) => {
+        requestQueue.push((newAccessToken: string) => {
+          origin.headers.Authorization = `Bearer ${newAccessToken}`;
+          resolve(serverApi(origin));
+        });
+      });
+    }
+
+    isRefreshing = true;
+    try {
+      // 刷新token 调用接口
+      const newToken = await refreshTokenApi({ refreshToken });
+      if (newToken.success) {
+        userStore.updateToken(newToken.data);
+      } else {
+        userStore.logout();
+        router.push("/");
+        return Promise.reject(err);
+      }
+      const newAccessToken = newToken.data.accessToken;
+      requestQueue.forEach((callback) => callback(newAccessToken));
+      requestQueue = [];
+      isRefreshing = false;
+      // 刷新token 成功后，重新请求原始请求
+      return serverApi(origin);
+    } catch (error) {
+      return Promise.reject(error);
+    } finally {
+      isRefreshing = false;
+      requestQueue = [];
+    }
+  },
+);
 
 export const aiApi = axios.create({
   baseURL: "/api/ai",
