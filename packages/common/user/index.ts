@@ -7,6 +7,9 @@ export interface User {
   address?: string | null; // 地址
   password: string; // 密码
   avatar?: string | null; // 头像
+  bio?: string | null; // 签名
+  isTimingTask: boolean; // 是否开启定时任务
+  timingTaskTime: string; // 定时任务时间
   wordNumber: number; // 单词数量
   dayNumber: number; // 打卡天数
   createdAt: Date; // 创建时间
@@ -22,6 +25,23 @@ export type UserRegister = Pick<User, "name" | "phone" | "email" | "password">;
 
 // 返回的类型 不包含密码
 export type ResultUser = Omit<User, "password">;
+
+// 更新用户的类型
+export type UserUpdate = Pick<
+  User,
+  | "name"
+  | "email"
+  | "address"
+  | "avatar"
+  | "bio"
+  | "isTimingTask"
+  | "timingTaskTime"
+>;
+
+export type AvatarResult = {
+  previewUrl: string; // 预览图URL
+  databaseUrl: string; // 数据库URL
+};
 
 // Token的类型
 export interface Token {

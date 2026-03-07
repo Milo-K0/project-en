@@ -3,6 +3,10 @@ export const timeout = 50000;
 import { useUserStore } from "@/stores/user";
 import router from "@/router";
 import { refreshTokenApi } from "./auth";
+import { ElMessage } from "element-plus";
+export const uploadUrl = import.meta.env.DEV
+  ? "http://192.168.1.21:9000"
+  : "https://api.english.com";
 
 export const serverApi = axios.create({
   baseURL: "/api/v1",
@@ -26,13 +30,19 @@ serverApi.interceptors.response.use(
     return res.data;
   },
   async (err) => {
+    if (err.code === "ERR_NETWORK") {
+      ElMessage.error("网络错误，请稍后重试");
+      return Promise.reject(err);
+    }
     if (err.response.status !== 401) {
+      ElMessage.error("服务器错误，请稍后重试");
       return Promise.reject(err);
     }
     const origin = err.config;
     const userStore = useUserStore();
     const refreshToken = userStore.getRefreshToken;
     if (!refreshToken) {
+      ElMessage.error("登录过期，请重新登录");
       userStore.logout();
       router.push("/");
       return Promise.reject(err);
@@ -54,6 +64,7 @@ serverApi.interceptors.response.use(
       if (newToken.success) {
         userStore.updateToken(newToken.data);
       } else {
+        ElMessage.error("登录过期，请重新登录");
         userStore.logout();
         router.push("/");
         return Promise.reject(err);

@@ -11,7 +11,7 @@
       <div class="text-2xl font-bold">English App</div>
       <template v-for="route in routes" :key="route.path">
         <div
-          @click="router.push(route.path)"
+          @click="gotoPath(route.path)"
           :class="isActive(route.path)"
           class="flex items-center gap-2 cursor-pointer rounded-[10px] px-2 py-1"
         >
@@ -41,22 +41,27 @@
           userStore.getUser?.dayNumber ?? 0
         }}</span>
       </div>
-      <div
-        class="flex items-center gap-2 border-l cursor-pointer border-gray-200 pl-4"
-      >
-        <img
-          class="w-10 h-10 rounded-full ml-2 mr-2"
-          src="https://gips3.baidu.com/it/u=3493347002,3356558679&fm=3074&app=3074&f=PNG?w=2048&h=2048"
-        />
-        <span class="text-sm font-bold">{{
-          userStore.getUser?.name ? userStore.getUser.name : "未登录"
-        }}</span>
-      </div>
+      <el-popover placement="bottom" width="340">
+        <template #reference>
+          <div
+            class="flex items-center gap-2 border-l cursor-pointer border-gray-200 pl-4"
+          >
+            <img class="w-10 h-10 rounded-full ml-2 mr-2" :src="avatar" />
+            <span class="text-sm font-bold">{{
+              userStore.getUser?.name ? userStore.getUser.name : "游客"
+            }}</span>
+          </div>
+        </template>
+        <Profile />
+      </el-popover>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
+import Profile from "@/layout/Profile/index.vue";
+import { useAvatar } from "@/hooks/useAvatar";
+const { avatar } = useAvatar();
 import {
   Sunny,
   Star,
@@ -69,16 +74,31 @@ import {
 import { useRouter } from "vue-router";
 import { watch, ref } from "vue";
 import { useUserStore } from "@/stores/user";
+import { useLogin } from "@/hooks/useLogin";
+
+const { login } = useLogin();
 const userStore = useUserStore();
 const router = useRouter();
 const currentPath = ref("");
 const routes = [
-  { path: "/", name: "主页", icon: HomeFilled },
-  { path: "/smart/chat", name: "AI", icon: MagicStick },
-  { path: "/word-book/index", name: "词库", icon: Notebook },
-  { path: "/courses/index", name: "课程", icon: Reading },
-  { path: "/setting/index", name: "设置", icon: Setting },
+  { path: "/", name: "主页", icon: HomeFilled, isAuth: false },
+  { path: "/smart/chat", name: "AI", icon: MagicStick, isAuth: true },
+  { path: "/word-book/index", name: "词库", icon: Notebook, isAuth: false },
+  { path: "/courses/index", name: "课程", icon: Reading, isAuth: false },
+  { path: "/setting/index", name: "设置", icon: Setting, isAuth: true },
 ];
+
+const gotoPath = (path: string) => {
+  const isAuth = routes.find((route) => route.path === path)?.isAuth ?? false;
+  if (isAuth) {
+    login().then(() => {
+      router.push(path);
+    });
+  } else {
+    router.push(path);
+  }
+};
+
 const isActive = (path: string) => {
   return currentPath.value === path
     ? "bg-blue-200 text-blue-700"
