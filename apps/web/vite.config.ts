@@ -12,6 +12,10 @@ export default defineConfig({
         target: `http://localhost:${Config.server.port}`,
         changeOrigin: true,
       },
+      "/ai": {
+        target: `http://localhost:${Config.server.ai}`,
+        changeOrigin: true,
+      },
     },
   },
   plugins: [vue(), tailwindcss()],

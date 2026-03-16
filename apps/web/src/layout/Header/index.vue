@@ -82,7 +82,7 @@ const router = useRouter();
 const currentPath = ref("");
 const routes = [
   { path: "/", name: "主页", icon: HomeFilled, isAuth: false },
-  { path: "/smart/chat", name: "AI", icon: MagicStick, isAuth: true },
+  { path: "/chat/index", name: "AI", icon: MagicStick, isAuth: true },
   { path: "/word-book/index", name: "词库", icon: Notebook, isAuth: false },
   { path: "/courses/index", name: "课程", icon: Reading, isAuth: false },
   { path: "/setting/index", name: "设置", icon: Setting, isAuth: true },

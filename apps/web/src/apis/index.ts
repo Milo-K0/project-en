@@ -5,7 +5,7 @@ import router from "@/router";
 import { refreshTokenApi } from "./auth";
 import { ElMessage } from "element-plus";
 export const uploadUrl = import.meta.env.DEV
-  ? "http://192.168.1.21:9000"
+  ? "http://192.168.1.3:9000"
   : "https://api.english.com";
 
 export const serverApi = axios.create({
@@ -85,7 +85,7 @@ serverApi.interceptors.response.use(
 );
 
 export const aiApi = axios.create({
-  baseURL: "/api/ai",
+  baseURL: "/ai/v1",
   timeout,
 });
 
